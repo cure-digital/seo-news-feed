@@ -176,10 +176,10 @@ def main():
 
     fg = FeedGenerator()
     fg.id("https://cure-digital.github.io/seo-news-feed/")
-    fg.title("Agency SEO News Wire")
+    fg.title("Cure SEO News Wire")
     fg.link(href="https://cure-digital.github.io/seo-news-feed/feed.xml", rel="self")
     fg.link(href="https://cure-digital.github.io/seo-news-feed/", rel="alternate")
-    fg.description("Hourly curated breaking industry news, Google announcements, and search algorithm reporting.")
+    fg.description("Hourly curated breaking industry news, Google announcements, and search algorithm reporting by Cure Digital.")
     fg.language("en")
 
     seen_titles = set()
@@ -311,8 +311,10 @@ def main():
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Agency SEO News Wire</title>
-    <meta name="description" content="Hourly curated breaking SEO industry news, algorithm shift reports, and Google announcements.">
+    <title>Cure SEO News Wire</title>
+    <meta name="description" content="Hourly curated breaking SEO industry news, algorithm shift reports, and Google announcements from Cure Digital.">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="apple-touch-icon" href="favicon.svg">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -389,7 +391,7 @@ def main():
             display: flex;
             align-items: center;
             gap: 0.75rem;
-        }
+            }
         .btn-copy {
             display: inline-flex;
             align-items: center;
@@ -525,7 +527,7 @@ def main():
         .card-meta {
             display: flex;
             align-items: center;
-            justify-content: space-between;
+           justify-content: space-between;
             margin-bottom: 0.65rem;
         }
         .card-time {
@@ -539,7 +541,6 @@ def main():
             line-height: 1.38;
             margin-bottom: 0.65rem;
         }
-        .brand-title a:hover,
         .card-title a {
             color: var(--text-primary);
             text-decoration: none;
@@ -589,8 +590,19 @@ def main():
     <header>
         <div class="container header-inner">
             <div class="brand-cluster">
-                <div class="pulse-indicator"></div>
-                <div class="brand-title">Agency SEO News Wire</div>
+                <svg class="brand-logo" width="30" height="30" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <defs>
+                        <linearGradient id="headerGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#f97316"/>
+                            <stop offset="100%" stop-color="#ea580c"/>
+                        </linearGradient>
+                    </defs>
+                    <rect width="32" height="32" rx="7" fill="#111827" stroke="#1f2937" stroke-width="1.5"/>
+                    <path d="M21 11C19.5 9.5 17.5 8.5 15 8.5C10.5 8.5 7 12 7 16.5C7 21 10.5 24.5 15 24.5C17.5 24.5 19.5 23.5 21 22" fill="none" stroke="url(#headerGrad)" stroke-width="3.5" stroke-linecap="round"/>
+                    <circle cx="21.5" cy="10.5" r="2.2" fill="#10b981"/>
+                </svg>
+                <div class="brand-title">Cure SEO News Wire</div>
+                <div class="pulse-indicator" title="Live hourly feed"></div>
             </div>
             <div class="action-cluster">
                 <a href="feed.xml" class="btn-copy" id="rssBtn" onclick="copyFeedUrl(event)">
@@ -666,6 +678,21 @@ def main():
     with open(os.path.join("public", "index.html"), "w", encoding="utf-8") as f:
         f.write(final_html)
     print("Generated public/index.html.")
+
+    favicon_svg = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f97316"/>
+      <stop offset="100%" stop-color="#ea580c"/>
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="7" fill="#0b0f19" stroke="#1e293b" stroke-width="1.5"/>
+  <path d="M21 11C19.5 9.5 17.5 8.5 15 8.5C10.5 8.5 7 12 7 16.5C7 21 10.5 24.5 15 24.5C17.5 24.5 19.5 23.5 21 22" fill="none" stroke="url(#g)" stroke-width="3.5" stroke-linecap="round"/>
+  <circle cx="21.5" cy="10.5" r="2.2" fill="#10b981"/>
+</svg>"""
+    with open(os.path.join("public", "favicon.svg"), "w", encoding="utf-8") as f:
+        f.write(favicon_svg)
+    print("Generated public/favicon.svg.")
 
 if __name__ == "__main__":
     main()
