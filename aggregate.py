@@ -539,11 +539,12 @@ def main():
             line-height: 1.38;
             margin-bottom: 0.65rem;
         }
+        .brand-title a:hover,
         .card-title a {
             color: var(--text-primary);
             text-decoration: none;
             transition: color 0.15s ease;
-            }
+        }
         .card-title a:hover {
             color: #f97316;
         }
@@ -624,7 +625,6 @@ def main():
 
     <script>
         function filterBySource(source) {
-            document.querySelectorAll('.filter-btn').toRI=toArray ? Array.from(document.querySelectorAll('.filter-btn')) : document.querySelectorAll('.filter-btn');
             document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
             event.target.classList.add('active');
             
@@ -654,14 +654,14 @@ def main():
             navigator.clipboard.writeText(feedUrl).then(() => {
                 const btn = document.getElementById('rssBtn');
                 const orig = btn.innerHTML;
-                btn.innerHTML = '<span>Copied URL#</span>';
+                btn.innerHTML = '<span>Copied URL!</span>';
                 setTimeout(() => { btn.innerHTML = orig; }, 2000);
             });
         }
     </script>
 </body>
 </html>
-"t""
+"""
     final_html = html_template.replace("{{TOTAL_COUNT}}", total_count).replace("{{CARDS_HTML}}", cards_html)
     with open(os.path.join("public", "index.html"), "w", encoding="utf-8") as f:
         f.write(final_html)
