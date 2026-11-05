@@ -576,7 +576,7 @@ def main():
             color: var(--text-primary);
             text-decoration: none;
             transition: color 0.15s ease;
-        }
+            }
         .card-title a:hover {
             color: #f97316;
         }
@@ -644,7 +644,7 @@ def main():
                 <div class="pulse-indicator" title="Live hourly feed"></div>
             </div>
             <div class="action-cluster">
-                <span class="last-updated-text" id="liveStatusText" title="Auto-refreshes every 10 minutes">Auto-refreshes every 10m</span>
+                <span class="last-updated-text" id="liveStatusText" title="Auto-refreshes hourly">Auto-refreshes hourly</span>
                 <button class="btn-refresh" id="refreshBtn" onclick="manualRefresh()" title="Check for new stories">
                     <svg class="refresh-icon" width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -684,7 +684,7 @@ def main():
     <script>
         let activeSource = 'all';
         let lastRefreshTime = Date.now();
-        const REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+        const REFRESH_INTERVAL_MS = 60 * 60 * 1000;
 
         function applyFilter(source) {
             activeSource = source;
@@ -740,7 +740,7 @@ def main():
 
             try {
                 const response = await fetch(window.location.pathname + '?_t=' + Date.now(), { cache: 'no-store' });
-                if (!response.ok) throw new Error('Network error');
+               if (!response.ok) throw new Error('Network error');
                 const htmlText = await response.text();
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(htmlText, 'text/html');
@@ -770,7 +770,7 @@ def main():
                 if (icon) icon.classList.remove('spinning');
                 setTimeout(() => {
                     if (label) label.innerText = 'Refresh';
-                    if (statusText) statusText.innerText = 'Auto-refreshes every 10m';
+                    if (statusText) statusText.innerText = 'Auto-refreshes hourly';
                 }, 2500);
             }
         }
