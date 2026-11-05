@@ -10,18 +10,26 @@ SOURCES = [
     {
         "name": "Google Search Central",
         "url": "https://developers.google.com/search/blog/rss.xml",
+        "badge_color": "#2563eb",
+        "default_img": "https://images.unsplash.com/photo-1573804633927-bfcbcd909acd?w=600&auto=format&fit=crop&q=80"
     },
     {
         "name": "Search Engine Roundtable",
         "url": "https://www.seroundtable.com/index.xml",
+        "badge_color": "#d97706",
+        "default_img": "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop&q=80"
     },
     {
-        "name": "Search Engine Land (News)",
+        "name": "Search Engine Land",
         "url": "https://searchengineland.com/category/news/feed",
+        "badge_color": "#dc2626",
+        "default_img": "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=600&auto=format&fit=crop&q=80"
     },
     {
-        "name": "Search Engine Journal (News)",
+        "name": "Search Engine Journal",
         "url": "https://www.searchenginejournal.com/category/news/feed/",
+        "badge_color": "#0284c7",
+        "default_img": "https://images.unsplash.com/photo-1504868584819-f8e8b4b6d7e3?w=600&auto=format&fit=crop&q=80"
     },
 ]
 
@@ -43,12 +51,65 @@ GUIDE_PATTERNS = [
 ]
 
 GUIDE_REGEX = re.compile("|".join(GUIDE_PATTERNS), re.IGNORECASE)
+IMG_REGEX = re.compile(r'<img[^>]+src=["\']([^"\']+)["\']', re.IGNORECASE)
 
 def is_breaking_news(title: str) -> bool:
     """Filter out non-news articles based on title patterns."""
     if GUIDE_REGEX.search(title):
         return False
     return True
+
+def extract_image(entry, default_img: str) -> str:
+    """Extract lead article image from media tags, enclosures, or content HTML."""
+    # Check media_content
+    if hasattr(entry, "media_content") and entry.media_content:
+        for media in entry.media_content:
+            url = media.get("url")
+            if url and not url.endswith(".svg"):
+                return url
+
+    # Check media_thumbnail
+    if hasattr(entry, "media_thumbnail") and entry.media_thumbnail:
+        for media in entry.media_thumbnail:
+            url = media.get("url")
+            if url:
+                return url
+
+    # Check enclosures
+    if hasattr(entry, "enclosures") and entry.enclosures:
+        for enc in entry.enclosures:
+            href = enc.get("href")
+            enc_type = enc.get("type", "")
+            if href and ("image" in enc_type or re.search(r"\.(jpg|jpeg|png|webp)", href, re.IGNORECASE)):
+                return href
+
+    # Search embedded HTML in description or content
+    html_corpus = ""
+    if hasattr(entry, "content") and entry.content:
+        for c in entry.content:
+            html_corpus += c.get("value", "") + " "
+    if hasattr(entry, "summary"):
+        html_corpus += entry.summary + " "
+    if hasattr(entry, "description"):
+        html_corpus += entry.description + " "
+
+    match = IMG_REGEX.search(html_corpus)
+    if match:
+        img_url = match.group(1)
+        # Exclude tiny tracker pixels or icon SVGs
+        if "pixel" not in img_url and "tracker" not in img_url and "avatar" not in img_url:
+            return img_url
+
+    return default_img
+
+def clean_snippet(html_text: str, max_chars: int = 175) -> str:
+    """Strip HTML tags and trim description to a clean summary snippet."""
+    clean = re.sub(r"<[^>]+>", " ", html_text)
+    clean = re.sub(r"\s+", " ", clean).strip()
+    clean = re.sub(r"The post .* appeared first on .*", "", clean).strip()
+    if len(clean) > max_chars:
+        clean = clean[:max_chars].rstrip() + "..."
+    return clean
 
 def parse_date(entry) -> datetime:
     """Extract and parse publication date into a timezone-aware UTC datetime."""
@@ -64,26 +125,44 @@ def parse_date(entry) -> datetime:
             pass
     return datetime.now(timezone.utc)
 
+def format_relative_time(dt: datetime) -> str:
+    """Render friendly relative time (e.g. 2h ago, yesterday)."""
+    now = datetime.now(timezone.utc)
+    diff = now - dt
+    seconds = int(diff.total_seconds())
+    if seconds < 3600:
+        minutes = max(1, seconds // 60)
+        return f"{minutes}m ago"
+    elif seconds < 86400:
+        hours = seconds // 3600
+        return f"{hours}h ago"
+    else:
+        days = seconds // 86400
+        return f"{days}d ago"
+
 def main():
     os.makedirs("public", exist_ok=True)
 
     fg = FeedGenerator()
-    fg.id("https://seo-news-feed.internal")
+    fg.id("https://cure-digital.github.io/seo-news-feed/")
     fg.title("Agency SEO News Wire")
-    fg.link(href="feed.xml", rel="self")
-    fg.description("Hourly curated breaking news and algorithm updates for the agency.")
+    fg.link(href="https://cure-digital.github.io/seo-news-feed/feed.xml", rel="self")
+    fg.link(href="https://cure-digital.github.io/seo-news-feed/", rel="alternate")
+    fg.description("Hourly curated breaking industry news, Google announcements, and search algorithm reporting.")
     fg.language("en")
 
     seen_titles = set()
     collected_entries = []
-    
-    # Only collect stories from the last 5 days to keep the feed fresh
     cutoff = datetime.now(timezone.utc) - timedelta(days=5)
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 AgencySEOBot/1.0"
+    }
 
     for source in SOURCES:
         try:
             print(f"Fetching: {source['name']} ({source['url']})")
-            feed = feedparser.parse(source["url"])
+            feed = feedparser.parse(source["url"], request_headers=headers)
             for item in feed.entries:
                 title = getattr(item, "title", "").strip()
                 link = getattr(item, "link", "").strip()
@@ -93,109 +172,448 @@ def main():
                 if not is_breaking_news(title):
                     continue
 
-                # Normalized title for cross-source deduplication
-                normalized_title = "".join(filter(str.isalnum, title.lower()))
-                if normalized_title in seen_titles:
+                norm_title = "".join(filter(str.isalnum, title.lower()))
+                if norm_title in seen_titles:
                     continue
-                seen_titles.add(normalized_title)
+                seen_titles.add(norm_title)
 
                 pub_date = parse_date(item)
                 if pub_date < cutoff:
                     continue
 
-                summary = getattr(item, "summary", "") or getattr(item, "description", "")
+                raw_summary = getattr(item, "summary", "") or getattr(item, "description", "")
+                snippet = clean_snippet(raw_summary)
+                image_url = extract_image(item, source["default_img"])
 
                 collected_entries.append({
-                    "title": f"[{source['name']}] {title}",
+                    "title": title,
+                    "display_title": f"[{source['name']}] {title}",
                     "link": link,
-                    "description": summary,
+                    "snippet": snippet,
+                    "image": image_url,
                     "pub_date": pub_date,
-                    "source": source["name"]
+                    "relative_time": format_relative_time(pub_date),
+                    "source": source["name"],
+                    "badge_color": source["badge_color"],
                 })
         except Exception as e:
             print(f"Error fetching {source['name']}: {e}")
 
-    # Sort strictly newest to oldest
+    # Sort strictly newest first
     collected_entries.sort(key=lambda x: x["pub_date"], reverse=True)
 
-    # Populate RSS Feed
+    # Populate RSS Feed with rich HTML and image enclosures
     for entry in collected_entries:
         fe = fg.add_entry()
         fe.id(entry["link"])
-        fe.title(entry["title"])
+        fe.title(entry["display_title"])
         fe.link(href=entry["link"])
-        fe.description(entry["description"])
+        
+        # Format rich HTML description for Slack and RSS readers
+        rich_description = (
+            f'<p><img src="{entry["image"]}" alt="{entry["title"]}" style="max-width:100%; border-radius:8px;" /></p>'
+            f'<p><strong>{entry["source"]}</strong>: {entry["snippet"]}</p>'
+            f'<p><a href="{entry["link"]}">Read full article at {entry["source"]}</a></p>'
+        )
+        fe.description(rich_description)
         fe.pubDate(entry["pub_date"])
+        fe.enclosure(entry["image"], 0, "image/jpeg")
 
     output_path = os.path.join("public", "feed.xml")
     fg.rss_file(output_path, pretty=True)
-    print(f"Generated {output_path} with {len(collected_entries)} news items.")
+    print(f"Generated {output_path} with {len(collected_entries)} items.")
 
-    # Generate a lightweight HTML companion page for colleagues browsing via browser
-    html_items = ""
-    for item in collected_entries[:30]:
-        formatted_date = item["pub_date"].strftime("%b %d, %Y %H:%M UTC")
-        html_items += f"""
-        <li style="margin-bottom: 1.25rem;">
-            <div style="font-size: 0.85rem; color: #64748b;">{item['source']} &bull; {formatted_date}</div>
-            <a href="{item['link']}" target="_blank" rel="noopener" style="font-size: 1.1rem; font-weight: 600; color: #1d4ed8; text-decoration: none;">
-                {item['title']}
-            </a>
-        </li>
+    # Generate visual cards HTML
+    cards_html = ""
+    for idx, item in enumerate(collected_entries):
+        cards_html += f"""
+        <article class="news-card" data-source="{item['source'].lower()}">
+            <div class="card-media">
+                <img src="{item['image']}" alt="{item['title']}" loading="lazy" onerror="this.src='{item['source']}'" />
+                <span class="badge" style="background-color: {item['badge_color']};">{item['source']}</span>
+            </div>
+            <div class="card-content">
+                <div class="card-meta">
+                    <span class="card-time">{item['relative_time']}</span>
+                </div>
+                <h2 class="card-title">
+                    <a href="{item['link']}" target="_blank" rel="noopener noreferrer">{item['title']}</a>
+                </h2>
+                <p class="card-snippet">{item['snippet']}</p>
+                <div class="card-footer">
+                    <a href="{item['link']}" class="read-link" target="_blank" rel="noopener noreferrer">
+                        Read Story <span>&rarr;</span>
+                    </a>
+                </div>
+            </div>
+        </article>
         """
 
+    total_count = len(collected_entries)
+    last_synced = datetime.now(timezone.utc).strftime("%b %d, %Y %H:%M UTC")
+
+    # Generate full modern dashboard index.html
     index_html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Agency SEO News Wire</title>
+    <meta name="description" content="Hourly curated breaking SEO industry news, algorithm shift reports, and Google announcements.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            max-width: 760px;
-            margin: 40px auto;
-            padding: 0 20px;
-            color: #1e293b;
-            line-height: 1.5;
+        :root {{
+            --bg-body: #0b0f19;
+            --bg-card: #111827;
+            --bg-card-hover: #172033;
+            --border-color: #1f293d;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent-orange: #f97316;
+            --accent-blue: #3b82f6;
+            --card-radius: 14px;
         }}
-        .header {{
-            border-bottom: 2px solid #e2e8f0;
-            padding-bottom: 1rem;
-            margin-bottom: 2rem;
-        }}
-        .rss-btn {{
-            display: inline-block;
-            background: #f97316;
-            color: white;
-            font-weight: 600;
-            padding: 6px 12px;
-            border-radius: 6px;
-            text-decoration: none;
-            font-size: 0.875rem;
-            margin-top: 0.5rem;
-        }}
-        ul {{
-            list-style: none;
+        * {{
+            box-sizing: border-box;
+            margin: 0;
             padding: 0;
+        }}
+        body {{
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-body);
+            color: var(--text-primary);
+            line-height: 1.5;
+            padding-bottom: 5rem;
+            -webkit-font-smoothing: antialiased;
+        }}
+        .container {{
+            max-width: 1240px;
+            margin: 0 auto;
+            padding: 0 1.5rem;
+        }}
+        /* Top Navigation Header */
+        header {{
+            border-bottom: 1px solid var(--border-color);
+            background: rgba(11, 15, 25, 0.85);
+            backdrop-filter: blur(12px);
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            padding: 1.2rem 0;
+        }}
+        .header-inner {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }}
+        .brand-cluster {{
+            display: flex;
+            align-items: center;
+            gap: 0.85rem;
+        }}
+        .pulse-indicator {{
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: #10b981;
+            box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+            animation: pulse 2s infinite;
+        }}
+        @keyframes pulse {{
+            0% {{ box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }}
+            70% {{ box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }}
+            100% {{ box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }}
+        }}
+        .brand-title {{
+            font-size: 1.35rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            background: linear-gradient(135deg, #ffffff 40%, #94a3b8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }}
+        .action-cluster {{
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }}
+        .btn-copy {{
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+            color: #ffffff;
+            font-weight: 600;
+            font-size: 0.875rem;
+            padding: 0.55rem 1.1rem;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            transition: transform 0.15s ease, filter 0.15s ease;
+            box-shadow: 0 4px 14px rgba(249, 115, 22, 0.3);
+            text-decoration: none;
+        }}
+        .btn-copy:hover {{
+            filter: brightness(1.1);
+            transform: translateY(-1px);
+        }}
+        /* Hero Bar */
+        .hero {{
+            padding: 2.75rem 0 2rem;
+        }}
+        .hero-desc {{
+            color: var(--text-secondary);
+            font-size: 1.05rem;
+            max-width: 650px;
+            margin-bottom: 1.75rem;
+        }}
+        .controls-bar {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            flex-wrap: wrap;
+            padding-bottom: 1.25rem;
+            border-bottom: 1px solid var(--border-color);
+        }}
+        .filter-tags {{
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }}
+        .filter-btn {{
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            padding: 0.4rem 0.85rem;
+            border-radius: 20px;
+            font-size: 0.825rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }}
+        .filter-btn:hover, .filter-btn.active {{
+            background: #1e293b;
+            color: #ffffff;
+            border-color: #38bdf8;
+        }}
+        .search-input {{
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            color: #ffffff;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-size: 0.875rem;
+            outline: none;
+            width: 240px;
+            transition: border-color 0.2s ease;
+        }}
+        .search-input:focus {{
+            border-color: var(--accent-blue);
+        }}
+        /* Grid Cards */
+        .news-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 1.75rem;
+            margin-top: 2rem;
+        }}
+        .news-card {{
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--card-radius);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+        }}
+        .news-card:hover {{
+            transform: translateY(-4px);
+            border-color: #334155;
+            box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+        }}
+        .card-media {{
+            position: relative;
+            width: 100%;
+            height: 195px;
+            background: #1e293b;
+            overflow: hidden;
+        }}
+        .card-media img {{
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.4s ease;
+        }}
+        .news-card:hover .card-media img {{
+            transform: scale(1.04);
+        }}
+        .badge {{
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            color: #ffffff;
+            font-size: 0.725rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            padding: 0.3rem 0.65rem;
+            border-radius: 6px;
+            backdrop-filter: blur(8px);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }}
+        .card-content {{
+            padding: 1.35rem;
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+        }}
+        .card-meta {{
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            font-size: 0.775rem;
+            color: var(--text-muted);
+            margin-bottom: 0.65rem;
+            font-weight: 500;
+        }}
+        .card-title {{
+            font-size: 1.15rem;
+            font-weight: 700;
+            line-height: 1.4;
+            margin-bottom: 0.75rem;
+            letter-spacing: -0.015em;
+        }}
+        .card-title a {{
+            color: var(--text-primary);
+            text-decoration: none;
+            transition: color 0.15s ease;
+        }}
+        .card-title a:hover {{
+            color: #60a5fa;
+        }}
+        .card-snippet {{
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            line-height: 1.55;
+            margin-bottom: 1.25rem;
+            flex-grow: 1;
+        }}
+        .card-footer {{
+            padding-top: 0.85rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }}
+        .read-link {{
+            color: #38bdf8;
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            transition: gap 0.15s ease;
+        }}
+        .read-link:hover {{
+            gap: 0.6rem;
+        }}
+        @media (max-width: 768px) {{
+            .news-grid {{
+                grid-template-columns: 1fr;
+            }}
+            .search-input {{
+                width: 100%;
+            }}
         }}
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>Agency SEO News Wire</h1>
-        <p>Live hourly SEO industry updates, official Google announcements, and algorithm reporting.</p>
-        <a class="rss-btn" href="feed.xml" target="_blank">Subscribe via RSS URL</a>
-    </div>
-    <ul>
-        {html_items}
-    </ul>
+    <header>
+        <div class="container header-inner">
+            <div class="brand-cluster">
+                <div class="pulse-indicator"></div>
+                <div class="brand-title">Agency SEO News Wire</div>
+            </div>
+            <div class="action-cluster">
+                <a href="feed.xml" class="btn-copy" id="rssBtn" onclick="copyFeedUrl(event)">
+                    <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><path d="M6.18 15.64a2.18 2.18 0 0 1 2.18 2.18C8.36 19 7.38 20 6.18 20C5 20 4 19 4 17.82a2.18 2.18 0 0 1 2.18-2.18M4 4.44A15.56 15.56 0 0 1 19.56 20h-2.83A12.73 12.73 0 0 0 4 7.27V4.44m0 5.66a9.9 9.9 0 0 1 9.9 9.9h-2.83A7.07 7.07 0 0 0 4 12.93v-2.83Z"/></svg>
+                    <span>Copy RSS URL</span>
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="hero">
+            <p class="hero-desc">
+                Live automated wire aggregating breaking industry updates, search algorithm changes, and Google communications. Filtered hourly for verified reporting.
+            </p>
+            <div class="controls-bar">
+                <div class="filter-tags">
+                    <button class="filter-btn active" onclick="filterBySource('all')">All ({total_count})</button>
+                    <button class="filter-btn" onclick="filterBySource('google')">Google</button>
+                    <button class="filter-btn" onclick="filterBySource('search engine roundtable')">Roundtable</button>
+                    <button class="filter-btn" onclick="filterBySource('search engine land')">SEL</button>
+                    <button class="filter-btn" onclick="filterBySource('search engine journal')">SEJ</button>
+                </div>
+                <input type="text" id="searchInput" class="search-input" placeholder="Search breaking stories..." oninput="handleSearch()" />
+            </div>
+        </section>
+
+        <section class="news-grid" id="newsGrid">
+            {cards_html}
+        </section>
+    </main>
+
+    <script>
+        function filterBySource(source) {
+            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            const cards = document.querySelectorAll('.news-card');
+            cards.forEach(card => {
+                if (source === 'all') {
+                    card.style.display = 'flex';
+                } else {
+                    const cardSource = card.getAttribute('data-source') || '';
+                    card.style.display = cardSource.includes(source) ? 'flex' : 'none';
+                }
+            });
+        }
+
+        function handleSearch() {
+            const query = document.getElementById('searchInput').value.toLowerCase();
+            const cards = document.querySelectorAll('.news-card');
+            cards.forEach(card => {
+                const text = card.innerText.toLowerCase();
+                card.style.display = text.includes(query) ? 'flex' : 'none';
+            });
+        }
+
+        function copyFeedUrl(e) {
+            e.preventDefault();
+            const feedUrl = window.location.origin + window.location.pathname.replace(/index\.html$/, '') + 'feed.xml';
+            navigator.clipboard.writeText(feedUrl).then(() => {
+                const btn = document.getElementById('rssBtn');
+                const orig = btn.innerHTML;
+                btn.innerHTML = '<span>Copied URL!</span>';
+                setTimeout(() => { btn.innerHTML = orig; }, 2000);
+            });
+        }
+    </script>
 </body>
 </html>
 """
     with open(os.path.join("public", "index.html"), "w", encoding="utf-8") as f:
         f.write(index_html)
-    print("Generated public/index.html.")
+    print("Generated jazzed-up public/index.html.")
 
 if __name__ == "__main__":
     main()
