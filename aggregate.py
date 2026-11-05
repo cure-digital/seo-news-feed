@@ -130,10 +130,10 @@ def format_relative_time(dt: datetime) -> str:
         return f"{minutes}m ago"
     elif seconds < 86400:
         hours = seconds // 3600
-        return f"{hours}h ago"
+        return f{hours}h ago"
     else:
         days = seconds // 86400
-        return f"{days}d ago"
+        return f{days}d ago"
 
 def main():
     os.makedirs("public", exist_ok=True)
@@ -148,7 +148,7 @@ def main():
 
     seen_titles = set()
     collected_entries = []
-    cutoff = datetime.now(timezone.utc) - timedelta(days=5)
+    cutoff = datetime.now(timezones.utc) - timedelta(days=5)
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 AgencySEOBot/1.0"
@@ -163,6 +163,12 @@ def main():
                 link = getattr(item, "link", "").strip()
                 if not title or not link:
                     continue
+
+                # Strip "via" and everything following it from article titles
+                clean_title = re.sub(r"\s*[\(\[\,\-\:|\s·\\b]*\s*\bvia\b.*$", "", title, flags=re.IGNORECASE).strip()
+                clean_title = re.sub(r"[s\,\-\:|\(\[�+$", "", clean_title).strip()
+                if clean_title:
+                    title = clean_title
 
                 if not is_breaking_news(title):
                     continue
@@ -299,73 +305,6 @@ def main():
             justify-content: space-between;
             gap: 1rem;
             flex-wrap: wrap;
-        }
-        .brand-cluster {
-            display: flex;
-            align-items: center;
-            gap: 0.85rem;
-        }
-        .pulse-indicator {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            background-color: #10b981;
-            box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
-            animation: pulse 2s infinite;
-        }
-        @keyframes pulse {
-            0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-            70% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
-        }
-        .brand-title {
-            font-size: 1.35rem;
-            font-weight: 800;
-            letter-spacing: -0.02em;
-            background: linear-gradient(135deg, #ffffff 40%, #94a3b8 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        .action-cluster {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-        }
-        .btn-copy {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
-            color: #ffffff;
-            font-weight: 600;
-            font-size: 0.875rem;
-            padding: 0.55rem 1.1rem;
-            border-radius: 8px;
-            border: none;
-            cursor: pointer;
-            transition: transform 0.15s ease, filter 0.15s ease;
-            box-shadow: 0 4px 14px rgba(249, 115, 22, 0.3);
-            text-decoration: none;
-        }
-        .btn-copy:hover {
-            filter: brightness(1.1);
-            transform: translateY(-1px);
-        }
-        .hero {
-            padding: 2.75rem 0 2rem;
-        }
-        .hero-desc {
-            color: var(--text-secondary);
-            font-size: 1.05rem;
-            max-width: 650px;
-            margin-bottom: 1.75rem;
-        }
-        .controls-bar {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 1rem;
-            flex-wrap: wrap;
             padding-bottom: 1.25rem;
             border-bottom: 1px solid var(--border-color);
         }
@@ -490,9 +429,7 @@ def main():
             line-height: 1.55;
             margin-bottom: 1.25rem;
             flex-grow: 1;
-        }
-        .card-footer {
-            padding-top: 0.85rem;
+            padding-bottom: 0.85rem;
             border-top: 1px solid rgba(255, 255, 255, 0.06);
             display: flex;
             align-items: center;
