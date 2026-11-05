@@ -61,21 +61,18 @@ def is_breaking_news(title: str) -> bool:
 
 def extract_image(entry, default_img: str) -> str:
     """Extract lead article image from media tags, enclosures, or content HTML."""
-    # Check media_content
     if hasattr(entry, "media_content") and entry.media_content:
         for media in entry.media_content:
             url = media.get("url")
             if url and not url.endswith(".svg"):
                 return url
 
-    # Check media_thumbnail
     if hasattr(entry, "media_thumbnail") and entry.media_thumbnail:
         for media in entry.media_thumbnail:
             url = media.get("url")
             if url:
                 return url
 
-    # Check enclosures
     if hasattr(entry, "enclosures") and entry.enclosures:
         for enc in entry.enclosures:
             href = enc.get("href")
@@ -83,7 +80,6 @@ def extract_image(entry, default_img: str) -> str:
             if href and ("image" in enc_type or re.search(r"\.(jpg|jpeg|png|webp)", href, re.IGNORECASE)):
                 return href
 
-    # Search embedded HTML in description or content
     html_corpus = ""
     if hasattr(entry, "content") and entry.content:
         for c in entry.content:
@@ -96,7 +92,6 @@ def extract_image(entry, default_img: str) -> str:
     match = IMG_REGEX.search(html_corpus)
     if match:
         img_url = match.group(1)
-        # Exclude tiny tracker pixels or icon SVGs
         if "pixel" not in img_url and "tracker" not in img_url and "avatar" not in img_url:
             return img_url
 
@@ -209,7 +204,6 @@ def main():
         fe.title(entry["display_title"])
         fe.link(href=entry["link"])
         
-        # Format rich HTML description for Slack and RSS readers
         rich_description = (
             f'<p><img src="{entry["image"]}" alt="{entry["title"]}" style="max-width:100%; border-radius:8px;" /></p>'
             f'<p><strong>{entry["source"]}</strong>: {entry["snippet"]}</p>'
@@ -223,13 +217,12 @@ def main():
     fg.rss_file(output_path, pretty=True)
     print(f"Generated {output_path} with {len(collected_entries)} items.")
 
-    # Generate visual cards HTML
     cards_html = ""
     for idx, item in enumerate(collected_entries):
         cards_html += f"""
         <article class="news-card" data-source="{item['source'].lower()}">
             <div class="card-media">
-                <img src="{item['image']}" alt="{item['title']}" loading="lazy" onerror="this.src='{item['source']}'" />
+                <img src="{item['image']}" alt="{item['title']}" loading="lazy" />
                 <span class="badge" style="background-color: {item['badge_color']};">{item['source']}</span>
             </div>
             <div class="card-content">
@@ -249,11 +242,9 @@ def main():
         </article>
         """
 
-    total_count = len(collected_entries)
-    last_synced = datetime.now(timezone.utc).strftime("%b %d, %Y %H:%M UTC")
+    total_count = str(len(collected_entries))
 
-    # Generate full modern dashboard index.html
-    index_html = f"""<!DOCTYPE html>
+    html_template = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -264,10 +255,9 @@ def main():
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
-        :root {{
+        :root {
             --bg-body: #0b0f19;
             --bg-card: #111827;
-            --bg-card-hover: #172033;
             --border-color: #1f293d;
             --text-primary: #f8fafc;
             --text-secondary: #94a3b8;
@@ -275,27 +265,26 @@ def main():
             --accent-orange: #f97316;
             --accent-blue: #3b82f6;
             --card-radius: 14px;
-        }}
-        * {{
+        }
+        * {
             box-sizing: border-box;
             margin: 0;
             padding: 0;
-        }}
-        body {{
+        }
+        body {
             font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             background-color: var(--bg-body);
             color: var(--text-primary);
             line-height: 1.5;
             padding-bottom: 5rem;
             -webkit-font-smoothing: antialiased;
-        }}
-        .container {{
+        }
+        .container {
             max-width: 1240px;
             margin: 0 auto;
             padding: 0 1.5rem;
-        }}
-        /* Top Navigation Header */
-        header {{
+        }
+        header {
             border-bottom: 1px solid var(--border-color);
             background: rgba(11, 15, 25, 0.85);
             backdrop-filter: blur(12px);
@@ -303,46 +292,46 @@ def main():
             top: 0;
             z-index: 50;
             padding: 1.2rem 0;
-        }}
-        .header-inner {{
+        }
+        .header-inner {
             display: flex;
             align-items: center;
             justify-content: space-between;
             gap: 1rem;
             flex-wrap: wrap;
-        }}
-        .brand-cluster {{
+        }
+        .brand-cluster {
             display: flex;
             align-items: center;
             gap: 0.85rem;
-        }}
-        .pulse-indicator {{
+        }
+        .pulse-indicator {
             width: 10px;
             height: 10px;
             border-radius: 50%;
             background-color: #10b981;
             box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
             animation: pulse 2s infinite;
-        }}
-        @keyframes pulse {{
-            0% {{ box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }}
-            70% {{ box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }}
-            100% {{ box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }}
-        }}
-        .brand-title {{
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+        .brand-title {
             font-size: 1.35rem;
             font-weight: 800;
             letter-spacing: -0.02em;
             background: linear-gradient(135deg, #ffffff 40%, #94a3b8 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-        }}
-        .action-cluster {{
+        }
+        .action-cluster {
             display: flex;
             align-items: center;
             gap: 0.75rem;
-        }}
-        .btn-copy {{
+        }
+        .btn-copy {
             display: inline-flex;
             align-items: center;
             gap: 0.5rem;
@@ -357,22 +346,21 @@ def main():
             transition: transform 0.15s ease, filter 0.15s ease;
             box-shadow: 0 4px 14px rgba(249, 115, 22, 0.3);
             text-decoration: none;
-        }}
-        .btn-copy:hover {{
+        }
+        .btn-copy:hover {
             filter: brightness(1.1);
             transform: translateY(-1px);
-        }}
-        /* Hero Bar */
-        .hero {{
+        }
+        .hero {
             padding: 2.75rem 0 2rem;
-        }}
-        .hero-desc {{
+        }
+        .hero-desc {
             color: var(--text-secondary);
             font-size: 1.05rem;
             max-width: 650px;
             margin-bottom: 1.75rem;
-        }}
-        .controls-bar {{
+        }
+        .controls-bar {
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -380,13 +368,13 @@ def main():
             flex-wrap: wrap;
             padding-bottom: 1.25rem;
             border-bottom: 1px solid var(--border-color);
-        }}
-        .filter-tags {{
+        }
+        .filter-tags {
             display: flex;
             gap: 0.5rem;
             flex-wrap: wrap;
-        }}
-        .filter-btn {{
+        }
+        .filter-btn {
             background: var(--bg-card);
             border: 1px solid var(--border-color);
             color: var(--text-secondary);
@@ -396,13 +384,13 @@ def main():
             font-weight: 600;
             cursor: pointer;
             transition: all 0.15s ease;
-        }}
-        .filter-btn:hover, .filter-btn.active {{
+        }
+        .filter-btn:hover, .filter-btn.active {
             background: #1e293b;
             color: #ffffff;
             border-color: #38bdf8;
-        }}
-        .search-input {{
+        }
+        .search-input {
             background: var(--bg-card);
             border: 1px solid var(--border-color);
             color: #ffffff;
@@ -412,18 +400,17 @@ def main():
             outline: none;
             width: 240px;
             transition: border-color 0.2s ease;
-        }}
-        .search-input:focus {{
+        }
+        .search-input:focus {
             border-color: var(--accent-blue);
-        }}
-        /* Grid Cards */
-        .news-grid {{
+        }
+        .news-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
             gap: 1.75rem;
             margin-top: 2rem;
-        }}
-        .news-card {{
+        }
+        .news-card {
             background: var(--bg-card);
             border: 1px solid var(--border-color);
             border-radius: var(--card-radius);
@@ -431,29 +418,29 @@ def main():
             display: flex;
             flex-direction: column;
             transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
-        }}
-        .news-card:hover {{
+        }
+        .news-card:hover {
             transform: translateY(-4px);
             border-color: #334155;
             box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
-        }}
-        .card-media {{
+        }
+        .card-media {
             position: relative;
             width: 100%;
             height: 195px;
             background: #1e293b;
             overflow: hidden;
-        }}
-        .card-media img {{
+        }
+        .card-media img {
             width: 100%;
             height: 100%;
             object-fit: cover;
             transition: transform 0.4s ease;
-        }}
-        .news-card:hover .card-media img {{
+        }
+        .news-card:hover .card-media img {
             transform: scale(1.04);
-        }}
-        .badge {{
+        }
+        .badge {
             position: absolute;
             top: 12px;
             left: 12px;
@@ -466,14 +453,14 @@ def main():
             border-radius: 6px;
             backdrop-filter: blur(8px);
             box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-        }}
-        .card-content {{
+        }
+        .card-content {
             padding: 1.35rem;
             display: flex;
             flex-direction: column;
             flex-grow: 1;
-        }}
-        .card-meta {{
+        }
+        .card-meta {
             display: flex;
             align-items: center;
             gap: 0.6rem;
@@ -481,37 +468,37 @@ def main():
             color: var(--text-muted);
             margin-bottom: 0.65rem;
             font-weight: 500;
-        }}
-        .card-title {{
+        }
+        .card-title {
             font-size: 1.15rem;
             font-weight: 700;
             line-height: 1.4;
             margin-bottom: 0.75rem;
             letter-spacing: -0.015em;
-        }}
-        .card-title a {{
+        }
+        .card-title a {
             color: var(--text-primary);
             text-decoration: none;
             transition: color 0.15s ease;
-        }}
-        .card-title a:hover {{
+        }
+        .card-title a:hover {
             color: #60a5fa;
-        }}
-        .card-snippet {{
+        }
+        .card-snippet {
             color: var(--text-secondary);
             font-size: 0.875rem;
             line-height: 1.55;
             margin-bottom: 1.25rem;
             flex-grow: 1;
-        }}
-        .card-footer {{
+        }
+        .card-footer {
             padding-top: 0.85rem;
             border-top: 1px solid rgba(255, 255, 255, 0.06);
             display: flex;
             align-items: center;
             justify-content: space-between;
-        }}
-        .read-link {{
+        }
+        .read-link {
             color: #38bdf8;
             font-size: 0.85rem;
             font-weight: 600;
@@ -520,18 +507,18 @@ def main():
             align-items: center;
             gap: 0.35rem;
             transition: gap 0.15s ease;
-        }}
-        .read-link:hover {{
+        }
+        .read-link:hover {
             gap: 0.6rem;
-        }}
-        @media (max-width: 768px) {{
-            .news-grid {{
+        }
+        @media (max-width: 768px) {
+            .news-grid {
                 grid-template-columns: 1fr;
-            }}
-            .search-input {{
+            }
+            .search-input {
                 width: 100%;
-            }}
-        }}
+            }
+        }
     </style>
 </head>
 <body>
@@ -557,7 +544,7 @@ def main():
             </p>
             <div class="controls-bar">
                 <div class="filter-tags">
-                    <button class="filter-btn active" onclick="filterBySource('all')">All ({total_count})</button>
+                    <button class="filter-btn active" onclick="filterBySource('all')">All ({{TOTAL_COUNT}})</button>
                     <button class="filter-btn" onclick="filterBySource('google')">Google</button>
                     <button class="filter-btn" onclick="filterBySource('search engine roundtable')">Roundtable</button>
                     <button class="filter-btn" onclick="filterBySource('search engine land')">SEL</button>
@@ -568,7 +555,7 @@ def main():
         </section>
 
         <section class="news-grid" id="newsGrid">
-            {cards_html}
+            {{CARDS_HTML}}
         </section>
     </main>
 
@@ -611,9 +598,10 @@ def main():
 </body>
 </html>
 """
+    final_html = html_template.replace("{{TOTAL_COUNT}}", total_count).replace("{{CARDS_HTML}}", cards_html)
     with open(os.path.join("public", "index.html"), "w", encoding="utf-8") as f:
-        f.write(index_html)
-    print("Generated jazzed-up public/index.html.")
+        f.write(final_html)
+    print("Generated public/index.html.")
 
 if __name__ == "__main__":
     main()
