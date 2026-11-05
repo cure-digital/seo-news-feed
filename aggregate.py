@@ -1,9 +1,12 @@
 import os
 import re
+import html
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
 from dateutil import parser as date_parser
 import feedparser
 from feedgen.feed import FeedGenerator
+import requests
 
 # High-signal SEO news sources
 SOURCES = [
@@ -21,7 +24,7 @@ SOURCES = [
     },
     {
         "name": "Search Engine Land",
-        "url": "https://searchengineland.com/category/news/feed",
+        "url": "https://searchengineland.com/feed",
         "badge_color": "#dc2626",
         "default_img": "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=600&auto=format&fit=crop&q=80"
     },
@@ -59,18 +62,18 @@ def is_breaking_news(title: str) -> bool:
         return False
     return True
 
-def extract_image(entry, default_img: str) -> str:
-    """Extract lead article image from media tags, enclosures, or content HTML."""
+def extract_rss_image(entry) -> str | None:
+    """Extract lead article image from media tags or enclosures if present in RSS."""
     if hasattr(entry, "media_content") and entry.media_content:
         for media in entry.media_content:
             url = media.get("url")
-            if url and not url.endswith(".svg"):
+            if url and not url.endswith(".svg") and "pixel" not in url.lower():
                 return url
 
     if hasattr(entry, "media_thumbnail") and entry.media_thumbnail:
         for media in entry.media_thumbnail:
             url = media.get("url")
-            if url:
+            if url and not url.endswith(".svg") and "pixel" not in url.lower():
                 return url
 
     if hasattr(entry, "enclosures") and entry.enclosures:
@@ -92,10 +95,43 @@ def extract_image(entry, default_img: str) -> str:
     match = IMG_REGEX.search(html_corpus)
     if match:
         img_url = match.group(1)
-        if "pixel" not in img_url and "tracker" not in img_url and "avatar" not in img_url:
+        if not any(bad in img_url.lower() for bad in ["pixel", "tracker", "avatar", "icon", "feed-icon"]):
             return img_url
 
-    return default_img
+    return None
+
+def fetch_og_image(url: str, headers: dict, timeout: int = 5) -> str | None:
+    """Fetch the individual post page and extract the open graph or twitter header image."""
+    try:
+        resp = requests.get(url, headers=headers, timeout=timeout, stream=True)
+        if resp.status_code != 200:
+            return None
+
+        chunks = []
+        total_len = 0
+        for chunk in resp.iter_content(chunk_size=8192, decode_unicode=True):
+            if chunk:
+                chunks.append(chunk)
+                total_len += len(chunk)
+                if "</head>" in chunk.lower() or total_len > 65536:
+                    break
+        html_head = "".join(chunks)
+
+        patterns = [
+            r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
+            r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',
+            r'<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\']([^"\']+)["\']',
+            r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']twitter:image["\']',
+        ]
+        for pat in patterns:
+            m = re.search(pat, html_head, re.IGNORECASE)
+            if m:
+                img_url = html.unescape(m.group(1)).strip()
+                if img_url.startswith("http") and not any(bad in img_url.lower() for bad in ["pixel", "tracker", "avatar", "feed-icon"]):
+                    return img_url
+    except Exception:
+        pass
+    return None
 
 def clean_snippet(html_text: str, max_chars: int = 175) -> str:
     """Strip HTML tags and trim description to a clean summary snippet."""
@@ -184,14 +220,15 @@ def main():
 
                 raw_summary = getattr(item, "summary", "") or getattr(item, "description", "")
                 snippet = clean_snippet(raw_summary)
-                image_url = extract_image(item, source["default_img"])
+                rss_img = extract_rss_image(item)
 
                 collected_entries.append({
                     "title": title,
                     "display_title": f"[{source['name']}] {title}",
                     "link": link,
                     "snippet": snippet,
-                    "image": image_url,
+                    "image": rss_img,
+                    "default_img": source["default_img"],
                     "pub_date": pub_date,
                     "relative_time": format_relative_time(pub_date),
                     "source": source["name"],
@@ -199,6 +236,25 @@ def main():
                 })
         except Exception as e:
             print(f"Error fetching {source['name']}: {e}")
+
+    # Resolve post header images concurrently
+    print(f"Resolving post header images for {len(collected_entries)} stories...")
+    def resolve_entry_image(entry):
+        if not entry["image"]:
+            og_img = fetch_og_image(entry["link"], headers)
+            if og_img:
+                entry["image"] = og_img
+            else:
+                entry["image"] = entry["default_img"]
+        return entry
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = [executor.submit(resolve_entry_image, e) for e in collected_entries]
+        for f in as_completed(futures):
+            try:
+                f.result()
+            except Exception as e:
+                print(f"Error resolving post image: {e}")
 
     # Sort strictly newest first
     collected_entries.sort(key=lambda x: x["pub_date"], reverse=True)
@@ -228,7 +284,7 @@ def main():
         cards_html += f"""
         <article class="news-card" data-source="{item['source'].lower()}">
             <div class="card-media">
-                <img src="{item['image']}" alt="{item['title']}" loading="lazy" />
+                <img src="{item['image']}" alt="{item['title']}" loading="lazy" onerror="this.onerror=null; this.src='{item['default_img']}';" />
                 <span class="badge" style="background-color: {item['badge_color']};">{item['source']}</span>
             </div>
             <div class="card-content">
@@ -264,12 +320,10 @@ def main():
         :root {
             --bg-body: #0b0f19;
             --bg-card: #111827;
-            --border-color: #1f293d;
-            --text-primary: #f8fafc;
+            --border-color: #1f2937;
+            --text-primary: #f9fafb;
             --text-secondary: #94a3b8;
-            --text-muted: #64748b;
-            --accent-orange: #f97316;
-            --accent-blue: #3b82f6;
+            --accent: #f97316;
             --card-radius: 14px;
         }
         * {
@@ -282,7 +336,6 @@ def main():
             background-color: var(--bg-body);
             color: var(--text-primary);
             line-height: 1.5;
-            padding-bottom: 5rem;
             -webkit-font-smoothing: antialiased;
         }
         .container {
@@ -297,7 +350,7 @@ def main():
             position: sticky;
             top: 0;
             z-index: 50;
-            padding: 1.2rem 0;
+            padding: 1.1rem 0;
         }
         .header-inner {
             display: flex;
@@ -325,10 +378,10 @@ def main():
             100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
         }
         .brand-title {
-            font-size: 1.35rem;
+            font-size: 1.25rem;
             font-weight: 800;
-            letter-spacing: -0.02em;
-            background: linear-gradient(135deg, #ffffff 40%, #94a3b8 100%);
+            letter-spacing: -0.025em;
+            background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
@@ -391,30 +444,34 @@ def main():
             cursor: pointer;
             transition: all 0.15s ease;
         }
-        .filter-btn:hover, .filter-btn.active {
-            background: #1e293b;
-            color: #ffffff;
-            border-color: #38bdf8;
+        .filter-btn:hover {
+            color: var(--text-primary);
+            border-color: #374151;
+        }
+        .filter-btn.active {
+            background: #ffffff;
+            color: #0b0f19;
+            border-color: #ffffff;
         }
         .search-input {
             background: var(--bg-card);
             border: 1px solid var(--border-color);
-            color: #ffffff;
-            padding: 0.5rem 1rem;
             border-radius: 8px;
+            padding: 0.45rem 0.9rem;
+            color: #ffffff;
             font-size: 0.875rem;
             outline: none;
-            width: 240px;
-            transition: border-color 0.2s ease;
+            width: 250px;
+            transition: border-color 0.15s ease;
         }
         .search-input:focus {
-            border-color: var(--accent-blue);
+            border-color: #f97316;
         }
         .news-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
             gap: 1.75rem;
-            margin-top: 2rem;
+            padding: 2rem 0 4rem;
         }
         .news-card {
             background: var(--bg-card);
@@ -458,7 +515,6 @@ def main():
             padding: 0.3rem 0.65rem;
             border-radius: 6px;
             backdrop-filter: blur(8px);
-            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
         }
         .card-content {
             padding: 1.35rem;
@@ -469,26 +525,27 @@ def main():
         .card-meta {
             display: flex;
             align-items: center;
-            gap: 0.6rem;
-            font-size: 0.775rem;
-            color: var(--text-muted);
+            justify-content: space-between;
             margin-bottom: 0.65rem;
-            font-weight: 500;
+        }
+        .card-time {
+            font-size: 0.8rem;
+            color: #64748b;
+            font-weight: 600;
         }
         .card-title {
-            font-size: 1.15rem;
+            font-size: 1.1rem;
             font-weight: 700;
-            line-height: 1.4;
-            margin-bottom: 0.75rem;
-            letter-spacing: -0.015em;
+            line-height: 1.38;
+            margin-bottom: 0.65rem;
         }
         .card-title a {
             color: var(--text-primary);
             text-decoration: none;
             transition: color 0.15s ease;
-          }
+            }
         .card-title a:hover {
-            color: #60a5fa;
+            color: #f97316;
         }
         .card-snippet {
             color: var(--text-secondary);
@@ -503,7 +560,7 @@ def main():
             display: flex;
             align-items: center;
             justify-content: space-between;
-          }
+        }
         .read-link {
             color: #38bdf8;
             font-size: 0.85rem;
@@ -519,7 +576,7 @@ def main():
         }
         @media (max-width: 768px) {
             .news-grid {
-                grgrid-template-columns: 1fr;
+                grid-template-columns: 1fr;
             }
             .search-input {
                 width: 100%;
@@ -567,6 +624,7 @@ def main():
 
     <script>
         function filterBySource(source) {
+            document.querySelectorAll('.filter-btn').toRI=toArray ? Array.from(document.querySelectorAll('.filter-btn')) : document.querySelectorAll('.filter-btn');
             document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
             event.target.classList.add('active');
             
@@ -596,14 +654,14 @@ def main():
             navigator.clipboard.writeText(feedUrl).then(() => {
                 const btn = document.getElementById('rssBtn');
                 const orig = btn.innerHTML;
-                btn.innerHTML = '<span>Copied URL!</span>';
+                btn.innerHTML = '<span>Copied URL#</span>';
                 setTimeout(() => { btn.innerHTML = orig; }, 2000);
             });
         }
     </script>
 </body>
 </html>
-"""
+"t""
     final_html = html_template.replace("{{TOTAL_COUNT}}", total_count).replace("{{CARDS_HTML}}", cards_html)
     with open(os.path.join("public", "index.html"), "w", encoding="utf-8") as f:
         f.write(final_html)
