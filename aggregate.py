@@ -146,7 +146,7 @@ def parse_date(entry) -> datetime:
     """Extract and parse publication date into a timezone-aware UTC datetime."""
     if hasattr(entry, "published_parsed") and entry.published_parsed:
         return datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
-    if hasattr(entry, "updated_parsed") and entry.updated_parsed:
+    if hasattr(entry, "qpdated_parsed") and entry.updated_parsed:
         return datetime(*entry.updated_parsed[:6], tzinfo=timezone.utc)
     if hasattr(entry, "published"):
         try:
@@ -391,7 +391,38 @@ def main():
             display: flex;
             align-items: center;
             gap: 0.75rem;
-            }
+        }
+        .last-updated-text {
+            font-size: 0.775rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+        .btn-refresh {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            font-weight: 600;
+            font-size: 0.875rem;
+            padding: 0.52rem 0.95rem;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .btn-refresh:hover {
+            background: #1e293b;
+            border-color: #374151;
+            color: #ffffff;
+        }
+        .refresh-icon.spinning {
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
         .btn-copy {
             display: inline-flex;
             align-items: center;
@@ -433,7 +464,7 @@ def main():
         .filter-tags {
             display: flex;
             gap: 0.5rem;
-            flex-wrap: wrap;
+            font-wrap: wrap;
         }
         .filter-btn {
             background: var(--bg-card);
@@ -527,7 +558,7 @@ def main():
         .card-meta {
             display: flex;
             align-items: center;
-           justify-content: space-between;
+            justify-content: space-between;
             margin-bottom: 0.65rem;
         }
         .card-time {
@@ -583,6 +614,14 @@ def main():
             .search-input {
                 width: 100%;
             }
+            .last-updated-text {
+                display: none;
+            }
+            .action-cluster {
+                width: 100%;
+                justify-content: flex-end;
+                gap: 0.5rem;
+            }
         }
     </style>
 </head>
@@ -605,6 +644,13 @@ def main():
                 <div class="pulse-indicator" title="Live hourly feed"></div>
             </div>
             <div class="action-cluster">
+                <span class="last-updated-text" id="liveStatusText" title="Auto-refreshes every 10 minutes">Auto-refreshes every 10m</span>
+                <button class="btn-refresh" id="refreshBtn" onclick="manualRefresh()" title="Check for new stories">
+                    <svg class="refresh-icon" width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    <span id="refreshBtnLabel">Refresh</span>
+                </button>
                 <a href="feed.xml" class="btn-copy" id="rssBtn" onclick="copyFeedUrl(event)">
                     <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><path d="M6.18 15.64a2.18 2.18 0 0 1 2.18 2.18C8.36 19 7.38 20 6.18 20C5 20 4 19 4 17.82a2.18 2.18 0 0 1 2.18-2.18M4 4.44A15.56 15.56 0 0 1 19.56 20h-2.83A12.73 12.73 0 0 0 4 7.27V4.44m0 5.66a9.9 9.9 0 0 1 9.9 9.9h-2.83A7.07 7.07 0 0 0 4 12.93v-2.83Z"/></svg>
                     <span>Copy RSS URL</span>
@@ -620,11 +666,11 @@ def main():
             </p>
             <div class="controls-bar">
                 <div class="filter-tags">
-                    <button class="filter-btn active" onclick="filterBySource('all')">All ({{TOTAL_COUNT}})</button>
-                    <button class="filter-btn" onclick="filterBySource('google')">Google</button>
-                    <button class="filter-btn" onclick="filterBySource('search engine roundtable')">Roundtable</button>
-                    <button class="filter-btn" onclick="filterBySource('search engine land')">SEL</button>
-                    <button class="filter-btn" onclick="filterBySource('search engine journal')">SEJ</button>
+                    <button class="filter-btn active" onclick="filterBySource(this, 'all')">All ({{TOTAL_COUNT}})</button>
+                    <button class="filter-btn" onclick="filterBySource(this, 'google')">Google</button>
+                    <button class="filter-btn" onclick="filterBySource(this, 'search engine roundtable')">Roundtable</button>
+                    <button class="filter-btn" onclick="filterBySource(this, 'search engine land')">SEL</button>
+                    <button class="filter-btn" onclick="filterBySource(this, 'search engine journal')">SEJ</button>
                 </div>
                 <input type="text" id="searchInput" class="search-input" placeholder="Search breaking stories..." oninput="handleSearch()" />
             </div>
@@ -636,10 +682,12 @@ def main():
     </main>
 
     <script>
-        function filterBySource(source) {
-            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
-            event.target.classList.add('active');
-            
+        let activeSource = 'all';
+        let lastRefreshTime = Date.now();
+        const REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+
+        function applyFilter(source) {
+            activeSource = source;
             const cards = document.querySelectorAll('.news-card');
             cards.forEach(card => {
                 if (source === 'all') {
@@ -651,12 +699,22 @@ def main():
             });
         }
 
+        function filterBySource(btn, source) {
+            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            if (btn) btn.classList.add('active');
+            applyFilter(source);
+            handleSearch();
+        }
+
         function handleSearch() {
             const query = document.getElementById('searchInput').value.toLowerCase();
             const cards = document.querySelectorAll('.news-card');
             cards.forEach(card => {
+                const cardSource = card.getAttribute('data-source') || '';
+                const matchesSource = (activeSource === 'all') || cardSource.includes(activeSource);
                 const text = card.innerText.toLowerCase();
-                card.style.display = text.includes(query) ? 'flex' : 'none';
+                const matchesQuery = text.includes(query);
+                card.style.display = (matchesSource && matchesQuery) ? 'flex' : 'none';
             });
         }
 
@@ -670,6 +728,68 @@ def main():
                 setTimeout(() => { btn.innerHTML = orig; }, 2000);
             });
         }
+
+        async function fetchLatestNews(isManual = false) {
+            const btn = document.getElementById('refreshBtn');
+            const icon = btn ? btn.querySelector('.refresh-icon') : null;
+            const label = document.getElementById('refreshBtnLabel');
+            const statusText = document.getElementById('liveStatusText');
+
+            if (icon) icon.classList.add('spinning');
+            if (isManual && label) label.innerText = 'Refreshing...';
+
+            try {
+                const response = await fetch(window.location.pathname + '?_t=' + Date.now(), { cache: 'no-store' });
+                if (!response.ok) throw new Error('Network error');
+                const htmlText = await response.text();
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(htmlText, 'text/html');
+
+                const newGrid = doc.getElementById('newsGrid');
+                const currentGrid = document.getElementById('newsGrid');
+                if (newGrid && currentGrid) {
+                    currentGrid.innerHTML = newGrid.innerHTML;
+                }
+
+                const allBtn = document.querySelector('.filter-btn');
+                const newAllBtn = doc.querySelector('.filter-btn');
+                if (allBtn && newAllBtn) {
+                    allBtn.innerText = newAllBtn.innerText;
+                }
+
+                applyFilter(activeSource);
+                handleSearch();
+
+                lastRefreshTime = Date.now();
+                if (statusText) statusText.innerText = 'Updated just now';
+                if (label) label.innerText = isManual ? 'Updated!' : 'Refresh';
+            } catch (err) {
+                console.warn('Auto-refresh check failed:', err);
+                if (label && isManual) label.innerText = 'Failed';
+            } finally {
+                if (icon) icon.classList.remove('spinning');
+                setTimeout(() => {
+                    if (label) label.innerText = 'Refresh';
+                    if (statusText) statusText.innerText = 'Auto-refreshes every 10m';
+                }, 2500);
+            }
+        }
+
+        function manualRefresh() {
+            fetchLatestNews(true);
+        }
+
+        setInterval(() => {
+            fetchLatestNews(false);
+        }, REFRESH_INTERVAL_MS);
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                if (Date.now() - lastRefreshTime > REFRESH_INTERVAL_MS) {
+                    fetchLatestNews(false);
+                }
+            }
+        });
     </script>
 </body>
 </html>
